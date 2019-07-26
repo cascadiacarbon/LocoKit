@@ -985,11 +985,11 @@ import LocoKitCore
 
             lastLocation = location
 
-            if let trustFactor = coordinateAssessor?.trustFactorFor(location.coordinate) {
-                ActivityBrain.highlander.add(rawLocation: location, trustFactor: trustFactor)
-            } else {
+            //if let trustFactor = coordinateAssessor?.trustFactorFor(location.coordinate) {
+            //    ActivityBrain.highlander.add(rawLocation: location, trustFactor: trustFactor)
+            //} else {
                 ActivityBrain.highlander.add(rawLocation: location)
-            }
+            //}
 
             addedLocations = true
         }
