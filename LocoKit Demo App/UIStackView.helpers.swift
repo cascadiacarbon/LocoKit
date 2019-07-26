@@ -6,7 +6,7 @@
 //  Copyright © 2017 Big Paua. All rights reserved.
 //
 
-import Cartography
+import Anchorage
 
 extension UIStackView {
     
@@ -14,20 +14,14 @@ extension UIStackView {
         let underline = UIView()
         underline.backgroundColor = UIColor(white: 0.85, alpha: 1)
         addArrangedSubview(underline)
-        
-        constrain(underline) { underline in
-            underline.height == 0.5
-        }
+        underline.heightAnchor == 1.0 / UIScreen.main.scale
     }
     
     func addGap(height: CGFloat) {
         let gap = UIView()
         gap.backgroundColor = .white
         addArrangedSubview(gap)
-        
-        constrain(gap) { gap in
-            gap.height == height
-        }
+        gap.heightAnchor == height
     }
 
     func addHeading(title: String, alignment: NSTextAlignment = .left) {
@@ -53,26 +47,24 @@ extension UIStackView {
         let row = UIStackView()
         row.distribution = .fillEqually
         row.spacing = 0.5
-        
-        for view in views {
-            row.addArrangedSubview(view)
-        }
-        
+        views.forEach { row.addArrangedSubview($0) }
         addArrangedSubview(row)
     }
     
-    @discardableResult func addRow(leftText: String? = nil, rightText: String? = nil, background: UIColor = .white) -> UIStackView {
+    @discardableResult func addRow(leftText: String? = nil, rightText: String? = nil,
+                                   color: UIColor = UIColor(white: 0.1, alpha: 1),
+                                   background: UIColor = .white) -> UIStackView {
         let leftLabel = UILabel()
         leftLabel.text = leftText
         leftLabel.font = UIFont.preferredFont(forTextStyle: .caption1)
-        leftLabel.textColor = UIColor(white: 0.1, alpha: 1)
+        leftLabel.textColor = color
         leftLabel.backgroundColor = background
         
         let rightLabel = UILabel()
         rightLabel.text = rightText
         rightLabel.textAlignment = .right
         rightLabel.font = UIFont.preferredFont(forTextStyle: .caption1)
-        rightLabel.textColor = UIColor(white: 0.1, alpha: 1)
+        rightLabel.textColor = color
         rightLabel.backgroundColor = background
         
         let leftPad = UIView()
@@ -87,12 +79,10 @@ extension UIStackView {
         row.addArrangedSubview(rightLabel)
         row.addArrangedSubview(rightPad)
         addArrangedSubview(row)
-        
-        constrain(row, leftPad, rightPad) { row, leftPad, rightPad in
-            leftPad.width == 8
-            rightPad.width == 8
-            row.height == 20
-        }
+
+        leftPad.widthAnchor == 8
+        rightPad.widthAnchor == 8
+        row.heightAnchor == 20
         
         return row
     }

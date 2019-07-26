@@ -7,7 +7,7 @@
 //
 
 import SwiftNotes
-import Cartography
+import Anchorage
 
 extension NSNotification.Name {
     public static let settingsChanged = Notification.Name("settingsChanged")
@@ -17,14 +17,13 @@ class SettingsView: UIScrollView {
 
     var locoDataToggleBoxes: [ToggleBox] = []
 
-    var transportClassifierToggleBox: UIView?
-    var transportClassifierToggle: UISwitch?
-    
     lazy var rows: UIStackView = {
         let box = UIStackView()
         box.axis = .vertical
         return box
     }()
+
+    // MARK: - 
     
     init() {
         super.init(frame: CGRect.zero)
@@ -39,15 +38,15 @@ class SettingsView: UIScrollView {
     
     override func didMoveToSuperview() {
         addSubview(rows)
-        constrain(rows, superview!) { rows, superview in
-            rows.top == rows.superview!.top
-            rows.bottom == rows.superview!.bottom
-            rows.left == rows.superview!.left + 8
-            rows.right == rows.superview!.right - 8
-            rows.right == superview.right - 8
-        }
+        rows.topAnchor == rows.superview!.topAnchor
+        rows.bottomAnchor == rows.superview!.bottomAnchor
+        rows.leftAnchor == rows.superview!.leftAnchor + 8
+        rows.rightAnchor == rows.superview!.rightAnchor - 8
+        rows.rightAnchor == superview!.rightAnchor - 8
     }
-    
+
+    // MARK: -
+
     func buildViewTree() {
         rows.addGap(height: 24)
         rows.addSubheading(title: "Map Style", alignment: .center)
@@ -117,23 +116,6 @@ class SettingsView: UIScrollView {
         rows.addRow(views: [samples, raw])
 
         rows.addGap(height: 18)
-        rows.addSubheading(title: "Activity Type Classifiers", alignment: .center)
-        rows.addGap(height: 6)
-        rows.addUnderline()
-        
-        let classifierBox = ToggleBox(text: "Base types") { isOn in
-            Settings.enableTheClassifier = isOn
-            self.transportClassifierToggle?.isEnabled = isOn
-            self.transportClassifierToggleBox?.subviews.forEach { $0.alpha = isOn ? 1 : 0.45 }
-        }
-        let extended = ToggleBox(text: "Transport") { isOn in
-            Settings.enableTransportClassifier = isOn
-        }
-        rows.addRow(views: [classifierBox, extended])
-        
-        transportClassifierToggleBox = extended
-        transportClassifierToggle = extended.toggle
-        
-        rows.addGap(height: 18)
     }
+
 }

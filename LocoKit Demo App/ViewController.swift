@@ -7,95 +7,72 @@
 //
 
 import LocoKit
+import Anchorage
 import SwiftNotes
-import Cartography
 import CoreLocation
 
 class ViewController: UIViewController {
 
-    /**
-     The recording manager for Timeline Items (Visits and Paths)
+    let store = TimelineStore()
+    
+    var recorder: TimelineRecorder
+    var dataSet: TimelineSegment?
 
-     - Note: Use a plain TimelineManager() instead if you don't require persistent SQL storage
-    **/
-    let timeline: TimelineManager = PersistentTimelineManager()
-
-    lazy var mapView = { return MapView(timeline: self.timeline) }()
-    lazy var timelineView = { return TimelineView(timeline: self.timeline) }()
+    lazy var mapView = { return MapView() }()
+    lazy var timelineView = { return TimelineView() }()
     let classifierView = ClassifierView()
     let settingsView = SettingsView()
     let locoView = LocoView()
     let logView = LogView()
 
     // MARK: controller lifecycle
-    
+
+    init() {
+        // LocoKit's Activity Type Classifiers require an API key
+        // API keys can be created at: https://www.bigpaua.com/locokit/account
+        // LocoKitService.apiKey = "<insert your API key here>"
+
+        if LocoKitService.apiKey != nil {
+            ActivityTypesCache.highlander.store = store
+            recorder = TimelineRecorder(store: store, classifier: TimelineClassifier.highlander)
+
+        } else {
+            recorder = TimelineRecorder(store: store)
+        }
+
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder aDecoder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        // the CoreLocation / CoreMotion recording singleton
-        let loco = LocomotionManager.highlander
-
-        /** EXAMPLE SETTINGS **/
-
-        // enable this if you have an API key and want to determine activity types
-        timeline.activityTypeClassifySamples = false
-
-        if timeline.activityTypeClassifySamples {
-            // API keys can be created at: https://www.bigpaua.com/arckit/account
-            LocoKitService.apiKey = "<insert your API key here>"
+        let query = "deleted = 0 AND endDate > datetime('now','-24 hours') ORDER BY startDate DESC"
+        dataSet = TimelineSegment(for: query, in: store) {
+            onMain {
+                let items = self.itemsToShow
+                self.mapView.update(with: items)
+                self.timelineView.update(with: items)
+            }
         }
-
-        // this accuracy level is excessive, and is for demo purposes only.
-        // the default value (30 metres) best balances accuracy with energy use.
-        loco.maximumDesiredLocationAccuracy = kCLLocationAccuracyNearestTenMeters
-
-        // this is independent of the user's setting, and will show a blue bar if user has denied "always"
-        loco.locationManager.allowsBackgroundLocationUpdates = true
-
-        /** TIMELINE STARTUP **/
-
-        // restore the active timeline items from local db
-        if let timeline = timeline as? PersistentTimelineManager {
-            timeline.bootstrapActiveItems()
-        }
-
-        /** EXAMPLE OBSERVERS **/
 
         // observe new timeline items
-        when(timeline, does: .newTimelineItem) { _ in
-            if let currentItem = self.timeline.currentItem {
+        when(.newTimelineItem) { _ in
+            if let currentItem = self.recorder.currentItem {
                 log(".newTimelineItem (\(String(describing: type(of: currentItem))))")
             }
-            onMain {
-                let items = self.itemsToShow
-                self.mapView.update(with: items)
-                self.timelineView.update(with: items)
-            }
         }
 
-        // observe timeline item updates
-        when(timeline, does: .updatedTimelineItem) { _ in
-            onMain {
-                let items = self.itemsToShow
-                self.mapView.update(with: items)
-                self.timelineView.update(with: items)
-            }
-        }
-
-        // observe timeline items finalised after post processing
-        when(timeline, does: .finalisedTimelineItem) { note in
-            if let item = note.userInfo?["timelineItem"] as? TimelineItem {
-                log(".finalisedTimelineItem (\(String(describing: type(of: item))))")
-            }
-            onMain { self.timelineView.update(with: self.itemsToShow) }
-        }
-
-        when(timeline, does: .mergedTimelineItems) { note in
-            if let description = note.userInfo?["merge"] as? String {
+        when(.mergedTimelineItems) { note in
+            if let description = note.userInfo?["description"] as? String {
                 log(".mergedItems (\(description))")
             }
-            onMain { self.timelineView.update(with: self.itemsToShow) }
         }
+
+        let loco = LocomotionManager.highlander
 
         // observe incoming location / locomotion updates
         when(loco, does: .locomotionSampleUpdated) { _ in
@@ -117,20 +94,12 @@ class ViewController: UIViewController {
             log(".movingStateChanged (\(loco.movingState))")
         }
 
-        when(loco, does: .startedSleepMode) { _ in
+        when(loco, does: .wentFromRecordingToSleepMode) { _ in
             log(".startedSleepMode")
         }
 
-        when(loco, does: .stoppedSleepMode) { _ in
+        when(loco, does: .wentFromSleepModeToRecording) { _ in
             log(".stoppedSleepMode")
-        }
-
-        when(.debugInfo) { note in
-            if let info = note.userInfo?["info"] as? String {
-                log(".debug (\(info))")
-            } else {
-                log(".debug (nil)")
-            }
         }
 
         when(settingsView, does: .settingsChanged) { _ in
@@ -138,8 +107,14 @@ class ViewController: UIViewController {
             self.setNeedsStatusBarAppearanceUpdate()
         }
 
-        when(.UIApplicationDidReceiveMemoryWarning) { _ in
+        when(UIApplication.didReceiveMemoryWarningNotification) { _ in
             log("UIApplicationDidReceiveMemoryWarning")
+        }
+
+        // housekeeping
+        when(UIApplication.didEnterBackgroundNotification) { _ in
+            log("store.hardDeleteSoftDeletedObjects()")
+            self.store.hardDeleteSoftDeletedObjects()
         }
 
         // view tree stuff
@@ -175,7 +150,7 @@ class ViewController: UIViewController {
     @objc func tappedStart() {
         log("tappedStart()")
 
-        timeline.startRecording()
+        recorder.startRecording()
 
         startButton.isHidden = true
         stopButton.isHidden = false
@@ -184,7 +159,7 @@ class ViewController: UIViewController {
     @objc func tappedStop() {
         log("tappedStop()")
 
-        timeline.stopRecording()
+        recorder.stopRecording()
 
         stopButton.isHidden = true
         startButton.isHidden = false
@@ -211,8 +186,8 @@ class ViewController: UIViewController {
             chosenView = settingsView
         }
 
-        view.bringSubview(toFront: chosenView)
-        view.bringSubview(toFront: viewToggleBar)
+        view.bringSubviewToFront(chosenView)
+        view.bringSubviewToFront(viewToggleBar)
         chosenView.flashScrollIndicators()
         Settings.visibleTab = chosenView
     }
@@ -221,39 +196,36 @@ class ViewController: UIViewController {
     
     func buildViewTree() {        
         view.addSubview(mapView)
-        constrain(mapView) { map in
-            map.top == map.superview!.top
-            map.left == map.superview!.left
-            map.right == map.superview!.right
-            map.height == map.superview!.height * 0.35
-        }
+        mapView.topAnchor == mapView.superview!.topAnchor
+        mapView.leftAnchor == mapView.superview!.leftAnchor
+        mapView.rightAnchor == mapView.superview!.rightAnchor
+        mapView.heightAnchor == mapView.superview!.heightAnchor * 0.35
 
         view.addSubview(topButtons)
-        constrain(mapView, topButtons) { map, topButtons in
-            topButtons.top == map.bottom
-            topButtons.left == topButtons.superview!.left
-            topButtons.right == topButtons.superview!.right
-            topButtons.height == 56
-        }
-        
+        topButtons.topAnchor == mapView.bottomAnchor
+        topButtons.leftAnchor == topButtons.superview!.leftAnchor
+        topButtons.rightAnchor == topButtons.superview!.rightAnchor
+        topButtons.heightAnchor == 56
+
         topButtons.addSubview(startButton)
         topButtons.addSubview(stopButton)
         topButtons.addSubview(clearButton)
-        constrain(startButton, stopButton, clearButton) { startButton, stopButton, clearButton in
-            align(top: startButton, stopButton, clearButton)
-            align(bottom: startButton, stopButton, clearButton)
+
+        startButton.topAnchor == stopButton.topAnchor
+        stopButton.topAnchor == clearButton.topAnchor
+        startButton.bottomAnchor == stopButton.bottomAnchor
+        stopButton.bottomAnchor == clearButton.bottomAnchor
+
+        startButton.topAnchor == startButton.superview!.topAnchor
+        startButton.bottomAnchor == startButton.superview!.bottomAnchor - 0.5
+        startButton.leftAnchor == startButton.superview!.leftAnchor
+        startButton.rightAnchor == startButton.superview!.centerXAnchor
             
-            startButton.top == startButton.superview!.top
-            startButton.bottom == startButton.superview!.bottom - 0.5
-            startButton.left == startButton.superview!.left
-            startButton.right == startButton.superview!.centerX
+        stopButton.edgeAnchors == startButton.edgeAnchors
             
-            stopButton.edges == startButton.edges
-            
-            clearButton.left == startButton.right + 0.5
-            clearButton.right == clearButton.superview!.right
-        }
-       
+        clearButton.leftAnchor == startButton.rightAnchor + 0.5
+        clearButton.rightAnchor == clearButton.superview!.rightAnchor
+
         view.addSubview(locoView)
         view.addSubview(classifierView)
         view.addSubview(logView)
@@ -262,28 +234,25 @@ class ViewController: UIViewController {
         view.addSubview(viewToggleBar)
         Settings.visibleTab = timelineView
         
-        constrain(viewToggleBar) { bar in
-            bar.bottom == bar.superview!.bottom
-            bar.left == bar.superview!.left
-            bar.right == bar.superview!.right
-        }
+        viewToggleBar.bottomAnchor == bottomLayoutGuide.topAnchor
+        viewToggleBar.leftAnchor == viewToggleBar.superview!.leftAnchor
+        viewToggleBar.rightAnchor == viewToggleBar.superview!.rightAnchor
 
-        constrain(topButtons, locoView, viewToggleBar) { topButtons, scroller, viewToggleBar in
-            scroller.top == topButtons.bottom
-            scroller.left == scroller.superview!.left
-            scroller.right == scroller.superview!.right
-            scroller.bottom == viewToggleBar.top
-        }
-        
-        constrain(timelineView, locoView, classifierView, logView, settingsView) { timeline, loco, classifier, log, settings in
-            settings.edges == loco.edges
-            timeline.edges == loco.edges
-            classifier.edges == loco.edges
-            log.edges == loco.edges
-        }
+        locoView.topAnchor == topButtons.bottomAnchor
+        locoView.leftAnchor == locoView.superview!.leftAnchor
+        locoView.rightAnchor == locoView.superview!.rightAnchor
+        locoView.bottomAnchor == viewToggleBar.topAnchor
+
+        settingsView.edgeAnchors == locoView.edgeAnchors
+        timelineView.edgeAnchors == locoView.edgeAnchors
+        classifierView.edgeAnchors == locoView.edgeAnchors
+        logView.edgeAnchors == locoView.edgeAnchors
     }
 
-    func update() {
+    func updateAllViews() {
+        // don't bother updating the UI when we're not in the foreground
+        guard UIApplication.shared.applicationState == .active else { return }
+
         let items = itemsToShow
         timelineView.update(with: items)
         mapView.update(with: items)
@@ -293,30 +262,7 @@ class ViewController: UIViewController {
     }
 
     var itemsToShow: [TimelineItem] {
-        if timeline is PersistentTimelineManager { return persistentItemsToShow }
-
-        guard let currentItem = timeline.currentItem else { return [] }
-
-        // collect the linked list of timeline items
-        var items: [TimelineItem] = [currentItem]
-        var workingItem = currentItem
-        while let previous = workingItem.previousItem {
-            items.append(previous)
-            workingItem = previous
-        }
-
-        return items
-    }
-
-    var persistentItemsToShow: [TimelineItem] {
-        guard let timeline = timeline as? PersistentTimelineManager else { return [] }
-
-        // make sure the db is fresh
-        timeline.store.save()
-
-        // feth all items in the past 24 hours
-        let boundary = Date(timeIntervalSinceNow: -60 * 60 * 24)
-        return timeline.store.items(where: "deleted = 0 AND endDate > ? ORDER BY endDate DESC", arguments: [boundary])
+        return dataSet?.timelineItems ?? []
     }
 
     // MARK: view property getters

@@ -17,7 +17,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication,
-                     didFinishLaunchingWithOptions launchOptions: [UIApplicationLaunchOptionsKey: Any]?) -> Bool {
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
 
         // only bother with Crashlytics for my own internal development builds
         if Bundle.main.bundleIdentifier == "com.bigpaua.LocoKit-Demo-App" {
@@ -43,7 +43,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         guard let controller = window?.rootViewController as? ViewController else { return }
         
         // update the UI on appear
-        controller.update()
+        controller.updateAllViews()
     }
 
 }

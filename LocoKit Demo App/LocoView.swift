@@ -7,7 +7,7 @@
 //
 
 import LocoKit
-import Cartography
+import Anchorage
 import CoreLocation
 
 class LocoView: UIScrollView {
@@ -31,22 +31,18 @@ class LocoView: UIScrollView {
 
     override func didMoveToSuperview() {
         addSubview(rows)
-        constrain(rows, superview!) { rows, superview in
-            rows.top == rows.superview!.top
-            rows.bottom == rows.superview!.bottom - 8
-            rows.left == rows.superview!.left + 16
-            rows.right == rows.superview!.right - 16
-            rows.right == superview.right - 16
-        }
+        rows.topAnchor == rows.superview!.topAnchor
+        rows.bottomAnchor == rows.superview!.bottomAnchor - 8
+        rows.leftAnchor == rows.superview!.leftAnchor + 16
+        rows.rightAnchor == rows.superview!.rightAnchor - 16
+        rows.rightAnchor == superview!.rightAnchor - 16
     }
 
     func update(sample: LocomotionSample? = nil) {
-        let loco = LocomotionManager.highlander
-
         // don't bother updating the UI when we're not in the foreground
-        guard UIApplication.shared.applicationState == .active else {
-            return
-        }
+        guard UIApplication.shared.applicationState == .active else { return }
+
+        let loco = LocomotionManager.highlander
 
         if sample != nil && Settings.visibleTab != self {
             return

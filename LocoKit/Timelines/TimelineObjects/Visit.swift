@@ -6,6 +6,7 @@
 //  Copyright © 2017 Big Paua. All rights reserved.
 //
 
+import GRDB
 import CoreLocation
 
 open class Visit: TimelineItem {
@@ -16,17 +17,40 @@ open class Visit: TimelineItem {
     public static var minimumRadius: CLLocationDistance = 10
     public static var maximumRadius: CLLocationDistance = 150
 
+    // MARK: -
+
+    public required init(from dict: [String: Any?], in store: TimelineStore) {
+        super.init(from: dict, in: store)
+    }
+
+    public required init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard let isVisit = try? container.decode(Bool.self, forKey: .isVisit), isVisit else {
+            throw DecodeError.runtimeError("Trying to decode a Path as a Visit")
+        }
+        try super.init(from: decoder)
+    }
+
+    public required init(in store: TimelineStore) {
+        super.init(in: store)
+    }
+    
+    // MARK: - Item validity
+
     open override var isValid: Bool {
         if samples.isEmpty { return false }
+        if isNolo { return false }
         if duration < Visit.minimumValidDuration { return false }
         return true
     }
 
     open override var isWorthKeeping: Bool {
-        if !isValid { return false }
+        if isInvalid { return false }
         if duration < Visit.minimumKeeperDuration { return false }
         return true
     }
+
+    // MARK: - Comparisons and Helpers
 
     /// Whether the given location falls within this visit's radius.
     public override func contains(_ location: CLLocation, sd: Double = 4) -> Bool {
@@ -71,7 +95,7 @@ open class Visit: TimelineItem {
         guard let center = center, let otherCenter = otherVisit.center else {
             return nil
         }
-        return center.distance(from: otherCenter) - radius2sd - otherVisit.radius2sd
+        return center.distance(from: otherCenter) - radius1sd - otherVisit.radius1sd
     }
 
     internal func distance(from path: Path) -> CLLocationDistance? {
@@ -81,7 +105,7 @@ open class Visit: TimelineItem {
         guard let pathEdge = path.edgeSample(with: self)?.location, pathEdge.hasUsableCoordinate else {
             return nil
         }
-        return center.distance(from: pathEdge) - radius2sd
+        return center.distance(from: pathEdge) - radius1sd
     }
 
     public override func maximumMergeableDistance(from otherItem: TimelineItem) -> CLLocationDistance {
@@ -111,10 +135,13 @@ open class Visit: TimelineItem {
         return CLLocationDistanceMax
     }
 
-    public override func cleanseEdge(with path: Path) -> LocomotionSample? {
+    internal override func cleanseEdge(with path: Path, excluding: Set<LocomotionSample>) -> LocomotionSample? {
         if self.isMergeLocked || path.isMergeLocked { return nil }
+        if self.isDataGap || path.isDataGap { return nil }
+        if self.deleted || path.deleted { return nil }
 
-        if path.samples.isEmpty { return nil }
+        // edge cleansing isn't allowed to push a path into invalid state
+        guard path.samples.count > Path.minimumValidSamples else { return nil }
 
         // fail out if separation distance is too much
         guard withinMergeableDistance(from: path) else { return nil }
@@ -125,45 +152,35 @@ open class Visit: TimelineItem {
         /** GET ALL THE REQUIRED VARS **/
 
         guard let visitEdge = self.edgeSample(with: path), visitEdge.hasUsableCoordinate else { return nil }
+        guard let visitEdgeNext = self.secondToEdgeSample(with: path), visitEdgeNext.hasUsableCoordinate else { return nil }
         guard let pathEdge = path.edgeSample(with: self), pathEdge.hasUsableCoordinate else { return nil }
         guard let pathEdgeNext = path.secondToEdgeSample(with: self), pathEdgeNext.hasUsableCoordinate else { return nil }
 
-        guard let visitEdgeLocation = visitEdge.location else { return nil }
         guard let pathEdgeLocation = pathEdge.location else { return nil }
         guard let pathEdgeNextLocation = pathEdgeNext.location else { return nil }
 
-        let visitEdgeIsInside = self.contains(visitEdgeLocation, sd: 2)
-        let pathEdgeIsInside = self.contains(pathEdgeLocation, sd: 2)
-        let pathEdgeNextIsInside = self.contains(pathEdgeNextLocation, sd: 2)
+        let pathEdgeIsInside = self.contains(pathEdgeLocation, sd: 1)
+        let pathEdgeNextIsInside = self.contains(pathEdgeNextLocation, sd: 1)
 
-        /** ATTEMPT TO MOVE A PATH EDGE TO THE VISIT **/
+        /** ATTEMPT TO MOVE PATH EDGE TO THE VISIT **/
 
         // path edge is inside and path edge next is inside: move path edge to the visit
-        if pathEdgeIsInside && pathEdgeNextIsInside {
+        if !excluding.contains(pathEdge), pathEdgeIsInside && pathEdgeNextIsInside {
             self.add(pathEdge)
-            NotificationCenter.default.post(Notification(name: .debugInfo, object: store?.manager,
-                                                         userInfo: ["info": "moved path edge to visit"]))
             return pathEdge
         }
 
-        /** ATTEMPT TO MOVE A VISIT EDGE TO THE PATH **/
+        /** ATTEMPT TO MOVE VISIT EDGE TO THE PATH **/
 
-        // path edge is outside and visit edge is outside: move visit edge to the path
-        if !pathEdgeIsInside && !visitEdgeIsInside {
-            path.add(visitEdge)
-            NotificationCenter.default.post(Notification(name: .debugInfo, object: store?.manager,
-                                                         userInfo: ["info": "moved visit edge to path"]))
-            return visitEdge
+        // not allowed to move visit edge if too much duration between edge and edge next
+        let edgeNextDuration = abs(visitEdge.date.timeIntervalSince(visitEdgeNext.date))
+        if edgeNextDuration > .oneMinute * 2 {
+            return nil
         }
 
-        // path edge is outside and visit edge type matches path edge type: move visit edge to the path
-        if
-            !pathEdgeIsInside, let visitEdgeType = visitEdge.activityType, visitEdgeType != .stationary,
-            visitEdgeType == pathEdge.activityType
-        {
+        // path edge is outside: move visit edge to the path
+        if !excluding.contains(visitEdge), !pathEdgeIsInside {
             path.add(visitEdge)
-            NotificationCenter.default.post(Notification(name: .debugInfo, object: store?.manager,
-                                                         userInfo: ["info": "moved visit edge to path"]))
             return visitEdge
         }
 
@@ -173,12 +190,19 @@ open class Visit: TimelineItem {
     override open func samplesChanged() {
         super.samplesChanged()
     }
+
+    // MARK: - PersistantRecord
+    
+    open override func encode(to container: inout PersistenceContainer) {
+        super.encode(to: &container)
+        container["isVisit"] = true
+    }
 }
 
 extension Visit: CustomStringConvertible {
 
     public var description: String {
-        return String(format: "%@ visit", isWorthKeeping ? "keeper" : isValid ? "valid" : "invalid")
+        return keepnessString + " visit"
     }
     
 }

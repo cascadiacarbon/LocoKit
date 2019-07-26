@@ -12,18 +12,18 @@ public class ItemSegment: Equatable {
 
     public weak var timelineItem: TimelineItem?
 
-    private var unsortedSamples: Set<LocomotionSample> = []
+    private var unsortedSamples: Set<PersistentSample> = []
 
-    private var _samples: [LocomotionSample]?
-    public var samples: [LocomotionSample] {
+    private var _samples: [PersistentSample]?
+    public var samples: [PersistentSample] {
         if let cached = _samples { return cached }
         _samples = unsortedSamples.sorted { $0.date < $1.date }
         return _samples!
     }
 
-    // MARK: Initialisers
+    // MARK: - Initialisers
 
-    public init(samples: [LocomotionSample], timelineItem: TimelineItem? = nil) {
+    public init(samples: [PersistentSample], timelineItem: TimelineItem? = nil) {
         self.timelineItem = timelineItem
         self.add(samples)
     }
@@ -41,7 +41,7 @@ public class ItemSegment: Equatable {
      to end at the point where the next begins, without the shared sample being incorrectly subjected to modifications
      made to this segment (eg activity type changes).
      */
-    public var endSample: LocomotionSample? { didSet { samplesChanged() } }
+    public var endSample: PersistentSample? { didSet { samplesChanged() } }
 
     private var manualStartDate: Date?
     private var manualEndDate: Date?
@@ -66,7 +66,6 @@ public class ItemSegment: Equatable {
         return samples.first?.recordingState
     }
 
-    public var activityType: ActivityTypeName? { return manualActivityType ?? samples.first?.activityType }
     public var duration: TimeInterval { return dateRange?.duration ?? 0 }
 
     private var _dateRange: DateInterval?
@@ -99,63 +98,96 @@ public class ItemSegment: Equatable {
         return distance
     }
 
-    // MARK: Activity Types
+    public var hasAnyUsableLocations: Bool {
+        return samples.haveAnyUsableLocations
+    }
+
+    // MARK: - Keepness scores
+
+    public var isInvalid: Bool { return !isValid }
+
+    public var isValid: Bool {
+        if activityType == .stationary {
+            if samples.isEmpty { return false }
+            if duration < Visit.minimumValidDuration { return false }
+        } else {
+            if samples.count < Path.minimumValidSamples { return false }
+            if duration < Path.minimumValidDuration { return false }
+            if distance < Path.minimumValidDistance { return false }
+        }
+        return true
+    }
+
+    public var isWorthKeeping: Bool {
+        if !isValid { return false }
+        if activityType == .stationary {
+            if duration < Visit.minimumKeeperDuration { return false }
+        } else {
+            if duration < Path.minimumKeeperDuration { return false }
+            if distance < Path.minimumKeeperDistance { return false }
+        }
+        return true
+    }
+
+    public var isDataGap: Bool {
+        if samples.isEmpty { return false }
+        for sample in samples {
+            if sample.recordingState != .off { return false }
+        }
+        return true
+    }
+
+    // MARK: - Activity Types
+
+    public var activityType: ActivityTypeName? {
+        return manualActivityType ?? samples.first?.activityType
+    }
+
+    public var confirmedType: ActivityTypeName? {
+        guard let activityType = activityType else { return nil }
+        for sample in samples {
+            if sample.confirmedType != activityType { return nil }
+        }
+        return activityType
+    }
 
     private var _classifierResults: ClassifierResults? = nil
     public var classifierResults: ClassifierResults? {
         if let results = _classifierResults { return results }
-        guard let results = timelineItem?.classifier?.classify(self, filtered: true) else { return nil }
+        guard let results = timelineItem?.classifier?.classify(self, timeout: 30) else { return nil }
         if results.moreComing { return results }
         _classifierResults = results
         return results
     }
 
-    private var _unfilteredClassifierResults: ClassifierResults? = nil
-    public var unfilteredClassifierResults: ClassifierResults? {
-        if let results = _unfilteredClassifierResults { return results }
-        guard let results = timelineItem?.classifier?.classify(self, filtered: false) else { return nil }
-        if results.moreComing { return results }
-        _unfilteredClassifierResults = results
-        return results
+    // MARK: - Modifying the item segment
+
+    func canAdd(_ sample: PersistentSample, ignoreRecordingState: Bool = false) -> Bool {
+
+        // need at least an activityType match
+        if sample.activityType != activityType { return false }
+
+        // don't care about recordingStates?
+        if ignoreRecordingState { return true }
+
+        // need a recordingState match
+        return sample.recordingState == recordingState
     }
 
-    // MARK: Modifying the item segment
-
-    func canAdd(_ sample: LocomotionSample) -> Bool {
-
-        // ignore recording state mismatches for segments in paths
-        if timelineItem is Path && sample.activityType == activityType { return true }
-
-        // exact state and type match
-        if sample.recordingState == recordingState && sample.activityType == activityType { return true }
-
-        // need at least a state match after here
-        guard let recordingState = self.recordingState else { return false }
-
-        // off samples go together, regardless of activity type
-        if recordingState == .off && sample.recordingState == .off { return true }
-
-        // sleep samples go together, regardless of activity type
-        let sleepStates = RecordingState.sleepStates
-        if sleepStates.contains(recordingState) && sleepStates.contains(sample.recordingState) { return true }
-
-        return false
-    }
-
-    public func add(_ sample: LocomotionSample) {
+    public func add(_ sample: PersistentSample) {
         add([sample])
     }
 
-    public func add(_ samples: [LocomotionSample]) {
+    public func add(_ samples: [PersistentSample]) {
         unsortedSamples.formUnion(samples)
         samplesChanged()
     }
 
-    public func remove(_ sample: LocomotionSample) {
+    public func remove(_ sample: PersistentSample) {
         remove([sample])
     }
 
-    public func remove(_ samples: [LocomotionSample]) {
+    public func remove(_ samples: [PersistentSample]) {
         unsortedSamples.subtract(samples)
         samplesChanged()
     }
@@ -167,10 +199,9 @@ public class ItemSegment: Equatable {
         _radius = nil
         _distance = nil
         _classifierResults = nil
-        _unfilteredClassifierResults = nil
     }
 
-    // MARK: Equatable
+    // MARK: - Equatable
 
     public static func ==(lhs: ItemSegment, rhs: ItemSegment) -> Bool {
         return lhs.dateRange == rhs.dateRange && lhs.samples.count == rhs.samples.count

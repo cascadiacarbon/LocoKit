@@ -9,67 +9,6 @@ import CoreLocation
 import LocoKitCore
 
 /**
- Custom notification events that the LocomotionManager may send.
- */
-public extension NSNotification.Name {
-
-    /**
-     `locomotionSampleUpdated` is sent whenever an updated LocomotionSample is available.
-
-     Typically this indicates that a new CLLocation has arrived, however this notification will also be periodically
-     sent even when no new location data is arriving, to indicate other changes to the current state. The location in
-     these samples may differ from previous even though new location data is not available, due to older raw locations
-     being discarded from the sample.
-     */
-    public static let locomotionSampleUpdated = Notification.Name("locomotionSampleUpdated")
-
-    /**
-     `willStartRecording` is sent when recording is about to begin or resume.
-     */
-    public static let willStartRecording = Notification.Name("willStartRecording")
-
-    /**
-     `recordingStateChanged` is sent after each `recordingState` change.
-     */
-    public static let recordingStateChanged = Notification.Name("recordingStateChanged")
-
-    /**
-     `movingStateChanged` is sent after each `movingState` change.
-     */
-    public static let movingStateChanged = Notification.Name("movingStateChanged")
-
-    /**
-     `willStartSleepMode` is sent when sleep mode is about to begin or resume.
-
-     - Note: This includes both transitions from `recording` state and `wakeup` state.
-     */
-    public static let willStartSleepMode = Notification.Name("willStartSleepMode")
-
-    /**
-     `willStartDeepSleepMode` is sent when deep sleep mode is about to begin or resume.
-
-     - Note: This includes both transitions from `recording` state and `wakeup` state.
-     */
-    public static let willStartDeepSleepMode = Notification.Name("willStartDeepSleepMode")
-
-    /**
-     `startedSleepMode` is sent after transitioning from `recording` state to `sleeping` state.
-     */
-    public static let startedSleepMode = Notification.Name("startedSleepMode")
-
-    /**
-     `stoppedSleepMode` is sent after transitioning from `sleeping` state to `recording` state.
-     */
-    public static let stoppedSleepMode = Notification.Name("stoppedSleepMode")
-
-    // broadcasted CLLocationManagerDelegate events
-    public static let didChangeAuthorizationStatus = Notification.Name("didChangeAuthorizationStatus")
-    public static let didUpdateLocations = Notification.Name("didUpdateLocations")
-    public static let didRangeBeacons = Notification.Name("didRangeBeacons")
-    public static let didVisit = Notification.Name("didVisit")
-}
-
-/**
  The central class for interacting with LocoKit location and motion recording. All actions should be performed on
  the `LocomotionManager.highlander` singleton.
  
@@ -110,7 +49,7 @@ public extension NSNotification.Name {
  either from the `movingState` property on the LocomotionManager, or on the latest `locomotionSample`. See the
  `movingState` documentation for further details.
  */
-@objc public class LocomotionManager: NSObject {
+@objc public class LocomotionManager: NSObject, CLLocationManagerDelegate {
    
     // internal settings
     internal static let fallbackUpdateCycle: TimeInterval = 30
@@ -118,7 +57,9 @@ public extension NSNotification.Name {
     internal static let maximumDesiredAccuracyDecreaseFrequency: TimeInterval = 60 * 2
     internal static let maximumDesiredLocationAccuracyInVisit = kCLLocationAccuracyHundredMeters
     internal static let wiggleHz: Double = 4
-    
+
+    public static let miminumDeepSleepDuration: TimeInterval = 60 * 15
+
     public let pedometer = CMPedometer()
     private let activityManager = CMMotionActivityManager()
 
@@ -145,9 +86,12 @@ public extension NSNotification.Name {
     internal var watchingTheWiggles = false
     internal var coreMotionPermission = false
     internal var lastAccuracyUpdate: Date?
+    internal var lastLocation: CLLocation?
     
     internal var fallbackUpdateTimer: Timer?
     internal var wakeupTimer: Timer?
+
+    internal var backgroundTaskId: UIBackgroundTaskIdentifier = UIBackgroundTaskIdentifier.invalid
 
     internal lazy var wigglesQueue: OperationQueue = {
         return OperationQueue()
@@ -156,13 +100,15 @@ public extension NSNotification.Name {
     internal lazy var coreMotionQueue: OperationQueue = {
         return OperationQueue()
     }()
+
+    public var coordinateAssessor: TrustAssessor?
     
     // MARK: The Singleton
     
     /// The LocomotionManager singleton instance, through which all actions should be performed.
     @objc public static let highlander = LocomotionManager()
     
-    // MARK: Settings
+    // MARK: - Settings
 
     /**
      The maximum desired location accuracy in metres. Set this value to your highest required accuracy.
@@ -235,9 +181,6 @@ public extension NSNotification.Name {
     /**
      Whether or not to record Core Motion activity type events. If this option is enabled,
      `LocomotionSample.coreMotionActivityType` will be set with the results.
-
-     - Note: If you are making use of `ActivityTypeClassifier`, enabling this option will increase classifier results
-     accuracy.
      */
     @objc public var recordCoreMotionActivityTypeEvents: Bool = true
 
@@ -248,12 +191,6 @@ public extension NSNotification.Name {
      consumption and extend battery life during long recording sessions.
      */
     @objc public var useLowPowerSleepModeWhileStationary: Bool = true
-
-    /**
-     Whether LocomotionManager should turn off recording while stationary and not resume recording until woken up by
-     iOS, in order to reduce energy consumption and extend battery life during long recording sessions.
-     */
-    @objc public var useDeepSleepModeWhileStationary: Bool = false
 
     /**
      Whether or not LocomotionManager should wake from sleep mode and resume recording when no location data is
@@ -352,7 +289,7 @@ public extension NSNotification.Name {
         return ActivityBrain.highlander.movingState
     }
 
-    // MARK: Starting and Stopping Recording
+    // MARK: - Starting and Stopping Recording
     
     /**
      Start monitoring device location and motion.
@@ -379,6 +316,9 @@ public extension NSNotification.Name {
         locationManager.distanceFilter = kCLDistanceFilterNone
         locationManager.startUpdatingLocation()
 
+        // start a background task, to keep iOS happy
+        startBackgroundTask()
+
         // start the motion gimps
         startCoreMotion()
         
@@ -388,15 +328,12 @@ public extension NSNotification.Name {
         // make sure we update even if not getting locations
         restartTheUpdateTimer()
 
-        // don't need background fetches for deep sleep while recording
-        onMain { UIApplication.shared.setMinimumBackgroundFetchInterval(UIApplicationBackgroundFetchIntervalNever) }
-
         let previousState = recordingState
         recordingState = .recording
 
         // tell everyone that sleep mode has ended (ie we went from sleep/wakeup to recording)
-        if previousState == .wakeup || previousState == .sleeping {
-            let note = Notification(name: .stoppedSleepMode, object: self, userInfo: nil)
+        if RecordingState.sleepStates.contains(previousState) {
+            let note = Notification(name: .wentFromSleepModeToRecording, object: self, userInfo: nil)
             NotificationCenter.default.post(note)
         }
     }
@@ -407,9 +344,7 @@ public extension NSNotification.Name {
      Amongst other internal tasks, this will call `stopUpdatingLocation()` on the internal location manager.
      */
     public func stopRecording() {
-        if recordingState == .off {
-            return
-        }
+        if recordingState == .off { return }
 
         // prep the brain for next startup
         ActivityBrain.highlander.freezeTheBrain()
@@ -427,6 +362,9 @@ public extension NSNotification.Name {
         // stop the safety nets
         locationManager.stopMonitoringVisits()
         locationManager.stopMonitoringSignificantLocationChanges()
+
+        // allow the app to suspend and terminate cleanly
+        endBackgroundTask()
         
         recordingState = .off
     }
@@ -552,8 +490,7 @@ public extension NSNotification.Name {
         guard useLowPowerSleepModeWhileStationary else { return }
 
         // notify that we're going to sleep
-        let note = Notification(name: .willStartSleepMode, object: self, userInfo: nil)
-        NotificationCenter.default.post(note)
+        NotificationCenter.default.post(Notification(name: .willStartSleepMode, object: self, userInfo: nil))
 
         // kill the gimps
         stopCoreMotion()
@@ -571,31 +508,40 @@ public extension NSNotification.Name {
         let previousState = recordingState
         recordingState = .sleeping
 
+        // notify that we've started sleep mode
+        NotificationCenter.default.post(Notification(name: .didStartSleepMode, object: self, userInfo: nil))
+
         // tell everyone that sleep mode has started (ie we went from recording to sleep)
         if previousState == .recording {
-            let note = Notification(name: .startedSleepMode, object: self, userInfo: nil)
+            let note = Notification(name: .wentFromRecordingToSleepMode, object: self, userInfo: nil)
             NotificationCenter.default.post(note)
         }
-
-        // should be deep sleeping?
-        if useDeepSleepModeWhileStationary { startDeepSleeping() }
     }
 
-    private func startDeepSleeping() {
-        if recordingState == .deepSleeping { return }
-
-        // make sure the SDK settings ask for deep sleep
-        guard useDeepSleepModeWhileStationary else { return }
+    public func startDeepSleeping(until wakeupTime: Date) {
 
         // make sure the device settings allow deep sleep
-        guard canDeepSleep else { return }
+        guard canDeepSleep else {
+            os_log("Deep sleep mode is unavailable due to device settings.", type: .debug)
+            return
+        }
+
+        let deepSleepDuration = wakeupTime.timeIntervalSinceNow
+
+        guard deepSleepDuration >= LocomotionManager.miminumDeepSleepDuration else {
+            os_log("Requested deep sleep duration is too short.", type: .debug)
+            return
+        }
 
         // notify that we're going to deep sleep
         let note = Notification(name: .willStartDeepSleepMode, object: self, userInfo: nil)
         NotificationCenter.default.post(note)
 
         // turn on background fetches
-        onMain { UIApplication.shared.setMinimumBackgroundFetchInterval(self.sleepCycleDuration * 10) }
+        onMain { UIApplication.shared.setMinimumBackgroundFetchInterval(deepSleepDuration) }
+
+        // request a wakeup call silent push
+        LocoKitService.requestWakeup(at: wakeupTime)
 
         // start the safety nets
         locationManager.startMonitoringVisits()
@@ -607,13 +553,17 @@ public extension NSNotification.Name {
         // stop the motion gimps
         stopCoreMotion()
 
-        // stop the wakeup timer
+        // stop the timers
         stopTheWakeupTimer()
+        stopTheUpdateTimer()
+
+        // allow the app to suspend and terminate cleanly
+        endBackgroundTask()
 
         recordingState = .deepSleeping
     }
 
-    var canDeepSleep: Bool {
+    public var canDeepSleep: Bool {
         guard haveBackgroundLocationPermission else { return false }
         guard UIApplication.shared.backgroundRefreshStatus == .available else { return false }
         return true
@@ -631,7 +581,13 @@ public extension NSNotification.Name {
         if recordingState == .off || recordingState == .deepSleeping {
             locationManager.allowsBackgroundLocationUpdates = true
             locationManager.startUpdatingLocation()
+
+            // start a background task, to keep iOS happy
+            startBackgroundTask()
         }
+
+        // need to be able to detect nolos
+        restartTheUpdateTimer()
 
         recordingState = .wakeup
     }
@@ -701,9 +657,30 @@ public extension NSNotification.Name {
         return false
     }
 
-    // MARK: - Core Motion management
+    // MARK: - Background management
 
-    // MARK: Activity Type
+    private func startBackgroundTask() {
+        guard backgroundTaskId == UIBackgroundTaskIdentifier.invalid else { return }
+        os_log("Starting LocoKit background task.", type: .debug)
+        backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "LocoKitBackground") {
+            os_log("LocoKit background task expired.", type: .error)
+
+            // tell people that the task expired, thus the app will be suspended soon
+            let note = Notification(name: .backgroundTaskExpired, object: self, userInfo: nil)
+            NotificationCenter.default.post(note)
+            
+            self.endBackgroundTask()
+        }
+    }
+
+    private func endBackgroundTask() {
+        guard backgroundTaskId != UIBackgroundTaskIdentifier.invalid else { return }
+        os_log("Ending LocoKit background task.", type: .debug)
+        UIApplication.shared.endBackgroundTask(backgroundTaskId)
+        backgroundTaskId = UIBackgroundTaskIdentifier.invalid
+    }
+
+    // MARK: - Core Motion management
 
     private func startTheM() {
         if watchingTheM {
@@ -734,7 +711,7 @@ public extension NSNotification.Name {
         watchingTheM = false
     }
 
-    // MARK: Pedometer
+    // MARK: - Pedometer
 
     private func startThePedometer() {
         if watchingThePedometer {
@@ -767,7 +744,7 @@ public extension NSNotification.Name {
         watchingThePedometer = false
     }
 
-    // MARK: Accelerometer
+    // MARK: - Accelerometer
 
     private func startTheWiggles() {
         if watchingTheWiggles {
@@ -800,10 +777,8 @@ public extension NSNotification.Name {
         
         watchingTheWiggles = false
     }
-    
-}
 
-private extension LocomotionManager {
+    // MARK: - Timers
     
     private func restartTheUpdateTimer() {
         onMain {
@@ -836,10 +811,8 @@ private extension LocomotionManager {
             self.wakeupTimer = nil
         }
     }
-    
-}
 
-private extension LocomotionManager {
+    // MARK: - Updating state and notifying listeners
 
     @objc private func updateAndNotify() {
 
@@ -893,6 +866,7 @@ private extension LocomotionManager {
             return
         }
 
+        // too soon for an update?
         if let last = lastAccuracyUpdate, last.age < LocomotionManager.maximumDesiredAccuracyIncreaseFrequency {
             return
         }
@@ -931,9 +905,7 @@ private extension LocomotionManager {
         }
     }
     
-}
-
-extension LocomotionManager: CLLocationManagerDelegate {
+    // MARK: - CLLocationManagerDelegate
 
     public func locationManager(_ manager: CLLocationManager, didRangeBeacons beacons: [CLBeacon], in region: CLBeaconRegion) {
 
@@ -943,6 +915,26 @@ extension LocomotionManager: CLLocationManagerDelegate {
 
         // forward the delegate event
         locationManagerDelegate?.locationManager?(manager, didRangeBeacons: beacons, in: region)
+    }
+
+    public func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
+
+        // broadcast a notification
+        let note = Notification(name: .didEnterRegion, object: self, userInfo: ["region": region])
+        NotificationCenter.default.post(note)
+
+        // forward the delegate event
+        locationManagerDelegate?.locationManager?(manager, didEnterRegion: region)
+    }
+
+    public func locationManager(_ manager: CLLocationManager, didExitRegion region: CLRegion) {
+
+        // broadcast a notification
+        let note = Notification(name: .didExitRegion, object: self, userInfo: ["region": region])
+        NotificationCenter.default.post(note)
+
+        // forward the delegate event
+        locationManagerDelegate?.locationManager?(manager, didExitRegion: region)
     }
     
     public func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
@@ -983,12 +975,27 @@ extension LocomotionManager: CLLocationManagerDelegate {
         }
 
         // feed the brain
+        var addedLocations = false
         for location in locations {
-            ActivityBrain.highlander.add(rawLocation: location)
+
+            // new location is too soon, and not better than previous? skip it
+            if let last = lastLocation, last.horizontalAccuracy <= location.horizontalAccuracy, last.timestamp.age < 1.1 {
+                continue
+            }
+
+            lastLocation = location
+
+            if let trustFactor = coordinateAssessor?.trustFactorFor(location.coordinate) {
+                ActivityBrain.highlander.add(rawLocation: location, trustFactor: trustFactor)
+            } else {
+                ActivityBrain.highlander.add(rawLocation: location)
+            }
+
+            addedLocations = true
         }
 
         // the payoff
-        updateAndNotify()
+        if addedLocations { updateAndNotify() }
     }
 
 }

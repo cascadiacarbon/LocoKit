@@ -6,6 +6,8 @@
 //  Copyright © 2017 Big Paua. All rights reserved.
 //
 
+import LocoKitCore
+
 #if canImport(Reachability)
 import Reachability
 #endif
@@ -18,18 +20,12 @@ public class TimelineClassifier: MLClassifierManager {
 
     public static var highlander = TimelineClassifier()
 
-    public var baseClassifier: Classifier?
-    public var transportClassifier: Classifier?
+    public var sampleClassifier: Classifier?
 
     #if canImport(Reachability)
     public let reachability = Reachability()!
     #endif
 
-    public var transportMeetsThreshold: Bool {
-        if let coverage = transportClassifier?.coverageScore, coverage > minimumTransportCoverage {
-            return true
-        }
-        return false
-    }
+    public let mutex = PThreadMutex(type: .recursive)
 
 }

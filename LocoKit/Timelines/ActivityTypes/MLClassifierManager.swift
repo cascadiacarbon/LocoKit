@@ -5,6 +5,7 @@
 //  Created by Matt Greenfield on 3/04/18.
 //
 
+import os.log
 import Upsurge
 import LocoKitCore
 import CoreLocation
@@ -17,52 +18,38 @@ public protocol MLClassifierManager: MLCompositeClassifier {
     
     associatedtype Classifier: MLClassifier
 
-    var baseClassifier: Classifier? { get set }
-    var transportClassifier: Classifier? { get set }
-    var transportMeetsThreshold: Bool { get }
+    var sampleClassifier: Classifier? { get set }
 
     #if canImport(Reachability)
     var reachability: Reachability { get }
     #endif
 
+    var mutex: PThreadMutex { get }
+
 }
 
 extension MLClassifierManager {
 
-    public var canClassify: Bool { return baseClassifier != nil }
-
-    public func classify(_ classifiable: ActivityTypeClassifiable, filtered: Bool) -> ClassifierResults? {
-
-        // attempt to keep the classifiers relevant / fresh
-        if let coordinate = classifiable.location?.coordinate {
-            updateTheBaseClassifier(for: coordinate)
-            updateTheTransportClassifier(for: coordinate)
-        }
-
-        // get the base type results
-        guard let classifier = baseClassifier else { return nil }
-        let results = classifier.classify(classifiable)
-
-        // not asked to test every type every time?
-        if filtered {
-
-            // don't need to go further if transport didn't win the base round
-            if results.first?.name != .transport { return results }
-
-            // don't go further if transport classifier has less than required coverage
-            guard transportMeetsThreshold else { return results }
-        }
-
-        // get the transport type results
-        guard let transportClassifier = transportClassifier else { return results }
-        let transportResults = transportClassifier.classify(classifiable)
-
-        // combine and return the results
-        return (results - ActivityTypeName.transport) + transportResults
+    public func canClassify(_ coordinate: CLLocationCoordinate2D? = nil) -> Bool {
+        if let coordinate = coordinate { mutex.sync { updateTheSampleClassifier(for: coordinate) } }
+        return mutex.sync { sampleClassifier } != nil
     }
 
-    public func classify(_ timelineItem: TimelineItem, filtered: Bool) -> ClassifierResults? {
-        guard let results = classify(timelineItem.samples, filtered: filtered) else { return nil }
+    public func classify(_ classifiable: ActivityTypeClassifiable, previousResults: ClassifierResults? = nil) -> ClassifierResults? {
+        return mutex.sync {
+            // make sure we're capable of returning sensible results
+            guard canClassify(classifiable.location?.coordinate) else { return nil }
+
+            // get the sample classifier
+            guard let classifier = mutex.sync(execute: { return sampleClassifier }) else { return nil }
+
+            // get the results
+            return classifier.classify(classifiable, previousResults: previousResults)
+        }
+    }
+
+    public func classify(_ timelineItem: TimelineItem, timeout: TimeInterval? = nil) -> ClassifierResults? {
+        guard let results = classify(timelineItem.samples, timeout: timeout) else { return nil }
 
         // radius is small enough to consider stationary a valid result
         if timelineItem.radius3sd < Visit.maximumRadius { return results }
@@ -78,10 +65,8 @@ extension MLClassifierManager {
         return ClassifierResults(results: resultsArray, moreComing: results.moreComing)
     }
 
-    public func classify(_ segment: ItemSegment, filtered: Bool) -> ClassifierResults? {
-        guard let results = classify(segment.samples, filtered: filtered) else {
-            return nil
-        }
+    public func classify(_ segment: ItemSegment, timeout: TimeInterval? = nil) -> ClassifierResults? {
+        guard let results = classify(segment.samples, timeout: timeout) else { return nil }
 
         // radius is small enough to consider stationary a valid result
         if segment.radius.with3sd < Visit.maximumRadius {
@@ -100,9 +85,12 @@ extension MLClassifierManager {
 
         return ClassifierResults(results: resultsArray, moreComing: results.moreComing)
     }
-    
-    public func classify(_ samples: [ActivityTypeClassifiable], filtered: Bool) -> ClassifierResults? {
+
+    // Note: samples must be provided in date ascending order
+    public func classify(_ samples: [ActivityTypeClassifiable], timeout: TimeInterval? = nil) -> ClassifierResults? {
         if samples.isEmpty { return nil }
+
+        let start = Date()
 
         var allScores: [ActivityTypeName: ValueArray<Double>] = [:]
         var allAccuracies: [ActivityTypeName: ValueArray<Double>] = [:]
@@ -112,21 +100,22 @@ extension MLClassifierManager {
         }
 
         var moreComing = false
+        var lastResults: ClassifierResults?
 
         for sample in samples {
+            if let timeout = timeout, start.age >= timeout {
+                os_log("Classifer reached timeout limit", type: .debug)
+                moreComing = true
+                break
+            }
 
             // attempt to use existing results
-            var tmpResults = filtered ? sample.classifierResults : sample.unfilteredClassifierResults
+            var tmpResults = sample.classifierResults
 
             // nil or incomplete existing results? get fresh results
             if tmpResults == nil || tmpResults?.moreComing == true {
-                if filtered {
-                    sample.classifierResults = classify(sample, filtered: filtered)
-                    tmpResults = sample.classifierResults ?? tmpResults
-                } else {
-                    sample.unfilteredClassifierResults = classify(sample, filtered: filtered)
-                    tmpResults = sample.unfilteredClassifierResults ?? tmpResults
-                }
+                sample.classifierResults = classify(sample, previousResults: lastResults)
+                tmpResults = sample.classifierResults ?? tmpResults
             }
 
             guard let results = tmpResults else { continue }
@@ -134,8 +123,6 @@ extension MLClassifierManager {
             if results.moreComing { moreComing = true }
 
             for typeName in ActivityTypeName.allTypes {
-                if !filtered && typeName == .transport { continue }
-
                 if let resultRow = results[typeName] {
                     allScores[resultRow.name]!.append(resultRow.score)
                     allAccuracies[resultRow.name]!.append(resultRow.modelAccuracyScore ?? 0)
@@ -145,13 +132,13 @@ extension MLClassifierManager {
                     allAccuracies[typeName]!.append(0)
                 }
             }
+
+            lastResults = results
         }
 
         var finalResults: [ClassifierResultItem] = []
 
         for typeName in ActivityTypeName.allTypes {
-            if !filtered && typeName == .transport { continue }
-
             var finalScore = 0.0
             if let scores = allScores[typeName], !scores.isEmpty {
                 finalScore = mean(scores)
@@ -171,39 +158,21 @@ extension MLClassifierManager {
 
     // MARK: Region specific classifier management
 
-    private func updateTheBaseClassifier(for coordinate: CLLocationCoordinate2D) {
+    private func updateTheSampleClassifier(for coordinate: CLLocationCoordinate2D) {
+
+        // have a classifier already, and it's still valid?
+        if let classifier = sampleClassifier, classifier.contains(coordinate: coordinate), !classifier.isStale {
+            return
+        }
 
         #if canImport(Reachability)
         // don't try to fetch classifiers without a network connection
         guard reachability.connection != .none else { return }
         #endif
 
-        // have a classifier already, and it's still valid?
-        if let classifier = baseClassifier, classifier.contains(coordinate: coordinate), !classifier.isStale {
-            return
-        }
-
         // attempt to get an updated classifier
-        if let replacement = Classifier(requestedTypes: ActivityTypeName.baseTypes, coordinate: coordinate) {
-            baseClassifier = replacement
-        }
-    }
-
-    private func updateTheTransportClassifier(for coordinate: CLLocationCoordinate2D) {
-
-        #if canImport(Reachability)
-        // don't try to fetch classifiers without a network connection
-        guard reachability.connection != .none else { return }
-        #endif
-
-        // have a classifier already, and it's still valid?
-        if let classifier = transportClassifier, classifier.contains(coordinate: coordinate), !classifier.isStale {
-            return
-        }
-
-        // attempt to get an updated classifier
-        if let replacement = Classifier(requestedTypes: ActivityTypeName.transportTypes, coordinate: coordinate) {
-            transportClassifier = replacement
+        if let replacement = Classifier(requestedTypes: ActivityTypeName.allTypes, coordinate: coordinate) {
+            sampleClassifier = replacement
         }
     }
 

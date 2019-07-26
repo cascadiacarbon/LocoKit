@@ -1,50 +1,65 @@
 PODS:
-  - Cartography (3.0.1)
-  - Crashlytics (3.10.1):
-    - Fabric (~> 1.7.5)
-  - Fabric (1.7.6)
-  - GRDB.swift (2.10.0)
-  - LocoKit (5.2.0):
-    - LocoKit/Base (= 5.2.0)
-  - LocoKit/Base (5.2.0):
-    - LocoKitCore (= 5.2.0)
+  - Anchorage (4.3)
+  - Crashlytics (3.12.0):
+    - Fabric (~> 1.9.0)
+  - Fabric (1.9.0)
+  - GRDB.swift (3.7.0)
+  - LocoKit (7.0.0):
+    - LocoKit/Base (= 7.0.0)
+  - LocoKit/Base (7.0.0):
+    - LocoKitCore (= 7.0.0)
     - Upsurge (~> 0.10)
-  - LocoKit/LocalStore (5.2.0):
-    - GRDB.swift (~> 2.10)
+  - LocoKit/Timelines (7.0.0):
+    - GRDB.swift (~> 3)
     - LocoKit/Base
-  - LocoKitCore (5.2.0)
+  - LocoKitCore (7.0.0)
   - SwiftNotes (1.1.0)
   - Upsurge (0.10.2)
 
 DEPENDENCIES:
-  - Cartography
+  - Anchorage
   - Crashlytics
   - Fabric
-  - LocoKit
-  - LocoKit/LocalStore
+  - LocoKit (from `https://github.com/sobri909/LocoKit.git`, branch `develop`)
+  - LocoKit/Timelines (from `https://github.com/sobri909/LocoKit.git`, branch `develop`)
+  - LocoKitCore (from `https://github.com/sobri909/LocoKit.git`, branch `develop`)
   - SwiftNotes
 
 SPEC REPOS:
-  https://github.com/CocoaPods/Specs.git:
-    - Cartography
+  https://github.com/cocoapods/specs.git:
+    - Anchorage
     - Crashlytics
     - Fabric
     - GRDB.swift
-    - LocoKit
-    - LocoKitCore
     - SwiftNotes
     - Upsurge
 
+EXTERNAL SOURCES:
+  LocoKit:
+    :branch: develop
+    :git: https://github.com/sobri909/LocoKit.git
+  LocoKitCore:
+    :branch: develop
+    :git: https://github.com/sobri909/LocoKit.git
+
+CHECKOUT OPTIONS:
+  LocoKit:
+    :commit: d86cb48ab8ba5925a01ba1dec8d2eccc1993add5
+    :git: https://github.com/sobri909/LocoKit.git
+  LocoKitCore:
+    :commit: d86cb48ab8ba5925a01ba1dec8d2eccc1993add5
+    :git: https://github.com/sobri909/LocoKit.git
+
 SPEC CHECKSUMS:
-  Cartography: f8c899bb0f5cf20758644a8eea59a75e98a03a5d
-  Crashlytics: aee1a064cbbf99b32efa3f056a5f458d846bc8ff
-  Fabric: f8d42c893bb187326a7968b62abe55c36a987a46
-  GRDB.swift: 9859cab1b990eac62ee550d3d2208ec1b44f76af
-  LocoKit: 196b61a7095abd3df43b3543b3e45c87e6b08e63
-  LocoKitCore: 98d8eab0dd9694015e0ba32777f6f50e1f4bb337
+  Anchorage: 21a98675245188427f0bcea21404d42a824a766f
+  Crashlytics: 07fb167b1694128c1c9a5a5cc319b0e9c3ca0933
+  Fabric: f988e33c97f08930a413e08123064d2e5f68d655
+  GRDB.swift: 51cc9e57ae8ff7083a9d674c97925aa1de06aac5
+  LocoKit: 9922d3e81a78e7f71661862eb8cbbd3ab7df90ec
+  LocoKitCore: 30cff6a1e4ac5a32eefe232c19e24fd79485661d
   SwiftNotes: 51d71568d7515c5c82aa791b88900cf8059b8beb
   Upsurge: 5866beadc3da27f91c5df4ac795deb3f3238d678
 
-PODFILE CHECKSUM: dc8799c37620fa788ee1ec5c20ff04d087c4aa4c
+PODFILE CHECKSUM: 0f6244ef2892c96dc03c4928fbad49d78829fe08
 
-COCOAPODS: 1.5.0
+COCOAPODS: 1.6.1

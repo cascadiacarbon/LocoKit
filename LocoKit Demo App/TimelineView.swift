@@ -7,11 +7,9 @@
 //
 
 import LocoKit
-import Cartography
+import Anchorage
 
 class TimelineView: UIScrollView {
-
-    let timeline: TimelineManager
 
     lazy var rows: UIStackView = {
         let box = UIStackView()
@@ -19,8 +17,7 @@ class TimelineView: UIScrollView {
         return box
     }()
 
-    init(timeline: TimelineManager) {
-        self.timeline = timeline
+    init() {
         super.init(frame: CGRect.zero)
         backgroundColor = .white
         alwaysBounceVertical = true
@@ -32,13 +29,11 @@ class TimelineView: UIScrollView {
 
     override func didMoveToSuperview() {
         addSubview(rows)
-        constrain(rows, superview!) { rows, superview in
-            rows.top == rows.superview!.top
-            rows.bottom == rows.superview!.bottom - 16
-            rows.left == rows.superview!.left + 16
-            rows.right == rows.superview!.right - 16
-            rows.right == superview.right - 16
-        }
+        rows.topAnchor == rows.superview!.topAnchor
+        rows.bottomAnchor == rows.superview!.bottomAnchor - 16
+        rows.leftAnchor == rows.superview!.leftAnchor + 16
+        rows.rightAnchor == rows.superview!.rightAnchor - 16
+        rows.rightAnchor == superview!.rightAnchor - 16
     }
 
     func update(with items: [TimelineItem]) {
@@ -56,11 +51,12 @@ class TimelineView: UIScrollView {
             return
         }
 
-        var nextItem: TimelineItem?
         for timelineItem in items {
-            if let next = nextItem, next.previousItem != timelineItem || timelineItem.nextItem != next { addDataGap() }
-            nextItem = timelineItem
-            add(timelineItem)
+            if timelineItem.isDataGap {
+                addDataGap(timelineItem)
+            } else {
+                add(timelineItem)
+            }
         }
     }
 
@@ -72,10 +68,6 @@ class TimelineView: UIScrollView {
         }
         if timelineItem.isCurrentItem {
             title += "Current "
-        } else if timeline.activeItems.contains(timelineItem) {
-            title += "Active "
-        } else {
-            title += "Finalised "
         }
         title += timelineItem.isNolo ? "Nolo" : timelineItem is Visit ? "Visit" : "Path"
         if let path = timelineItem as? Path, let activityType = path.movingActivityType {
@@ -89,6 +81,15 @@ class TimelineView: UIScrollView {
         }
         rows.addSubheading(title: title)
         rows.addGap(height: 6)
+
+        if timelineItem.hasBrokenEdges {
+            if timelineItem.nextItem == nil && !timelineItem.isCurrentItem {
+                rows.addRow(leftText: "nextItem is nil", color: .red)
+            }
+            if timelineItem.previousItem == nil {
+                rows.addRow(leftText: "previousItem is nil", color: .red)
+            }
+        }
 
         rows.addRow(leftText: "Duration", rightText: String(duration: timelineItem.duration))
 
@@ -132,16 +133,14 @@ class TimelineView: UIScrollView {
         rows.addRow(leftText: "ItemId", rightText: timelineItem.itemId.uuidString, background: debugColor)
     }
 
-    func addDataGap(duration: TimeInterval? = nil) {
+    func addDataGap(_ timelineItem: TimelineItem) {
+        guard timelineItem.isDataGap else { return }
+
         rows.addGap(height: 14)
         rows.addUnderline()
         rows.addGap(height: 14)
 
-        if let duration = duration {
-            rows.addSubheading(title: "Timeline Gap (\(String(duration: duration)))", color: .red)
-        } else {
-            rows.addSubheading(title: "Timeline Gap", color: .red)
-        }
+        rows.addSubheading(title: "Timeline Gap (\(String(duration: timelineItem.duration)))", color: .red)
 
         rows.addGap(height: 14)
         rows.addUnderline()
