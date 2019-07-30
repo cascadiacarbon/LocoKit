@@ -5,9 +5,9 @@ use_frameworks!
 #pod 'LocoKit'
 #pod 'LocoKit/Timelines'
 
-pod 'LocoKit', :git => 'https://github.com/sobri909/LocoKit.git', :branch => 'develop'
-pod 'LocoKit/Timelines', :git => 'https://github.com/sobri909/LocoKit.git', :branch => 'develop'
-pod 'LocoKitCore', :git => 'https://github.com/sobri909/LocoKit.git', :branch => 'develop'
+pod 'LocoKit', :path => '/Users/ericschmitt/Documents/Work/Codex/LocoKit'
+pod 'LocoKit/Timelines', :path => '/Users/ericschmitt/Documents/Work/Codex/LocoKit'
+pod 'LocoKitCore', :path => '/Users/ericschmitt/Documents/Work/Codex/LocoKit'
 
 pod 'SwiftNotes'
 pod 'Anchorage'

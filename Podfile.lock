@@ -3,26 +3,21 @@ PODS:
   - Crashlytics (3.12.0):
     - Fabric (~> 1.9.0)
   - Fabric (1.9.0)
-  - GRDB.swift (3.7.0)
   - LocoKit (7.0.0):
     - LocoKit/Base (= 7.0.0)
-  - LocoKit/Base (7.0.0):
-    - LocoKitCore (= 7.0.0)
-    - Upsurge (~> 0.10)
+  - LocoKit/Base (7.0.0)
   - LocoKit/Timelines (7.0.0):
-    - GRDB.swift (~> 3)
     - LocoKit/Base
   - LocoKitCore (7.0.0)
   - SwiftNotes (1.1.0)
-  - Upsurge (0.10.2)
 
 DEPENDENCIES:
   - Anchorage
   - Crashlytics
   - Fabric
-  - LocoKit (from `https://github.com/sobri909/LocoKit.git`, branch `develop`)
-  - LocoKit/Timelines (from `https://github.com/sobri909/LocoKit.git`, branch `develop`)
-  - LocoKitCore (from `https://github.com/sobri909/LocoKit.git`, branch `develop`)
+  - LocoKit (from `/Users/ericschmitt/Documents/Work/Codex/LocoKit`)
+  - LocoKit/Timelines (from `/Users/ericschmitt/Documents/Work/Codex/LocoKit`)
+  - LocoKitCore (from `/Users/ericschmitt/Documents/Work/Codex/LocoKit`)
   - SwiftNotes
 
 SPEC REPOS:
@@ -30,36 +25,22 @@ SPEC REPOS:
     - Anchorage
     - Crashlytics
     - Fabric
-    - GRDB.swift
     - SwiftNotes
-    - Upsurge
 
 EXTERNAL SOURCES:
   LocoKit:
-    :branch: develop
-    :git: https://github.com/sobri909/LocoKit.git
+    :path: "/Users/ericschmitt/Documents/Work/Codex/LocoKit"
   LocoKitCore:
-    :branch: develop
-    :git: https://github.com/sobri909/LocoKit.git
-
-CHECKOUT OPTIONS:
-  LocoKit:
-    :commit: d86cb48ab8ba5925a01ba1dec8d2eccc1993add5
-    :git: https://github.com/sobri909/LocoKit.git
-  LocoKitCore:
-    :commit: d86cb48ab8ba5925a01ba1dec8d2eccc1993add5
-    :git: https://github.com/sobri909/LocoKit.git
+    :path: "/Users/ericschmitt/Documents/Work/Codex/LocoKit"
 
 SPEC CHECKSUMS:
   Anchorage: 21a98675245188427f0bcea21404d42a824a766f
   Crashlytics: 07fb167b1694128c1c9a5a5cc319b0e9c3ca0933
   Fabric: f988e33c97f08930a413e08123064d2e5f68d655
-  GRDB.swift: 51cc9e57ae8ff7083a9d674c97925aa1de06aac5
-  LocoKit: 9922d3e81a78e7f71661862eb8cbbd3ab7df90ec
+  LocoKit: f8f1449440eb404146424e196f2249a8436e4ae5
   LocoKitCore: 30cff6a1e4ac5a32eefe232c19e24fd79485661d
   SwiftNotes: 51d71568d7515c5c82aa791b88900cf8059b8beb
-  Upsurge: 5866beadc3da27f91c5df4ac795deb3f3238d678
 
-PODFILE CHECKSUM: 0f6244ef2892c96dc03c4928fbad49d78829fe08
+PODFILE CHECKSUM: 68284a64992da6a342aab9bca1d38d9e4d75dfda
 
-COCOAPODS: 1.6.1
+COCOAPODS: 1.7.5

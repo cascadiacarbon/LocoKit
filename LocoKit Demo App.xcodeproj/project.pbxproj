@@ -291,20 +291,16 @@
 			inputPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-LocoKit Demo App/Pods-LocoKit Demo App-frameworks.sh",
 				"${BUILT_PRODUCTS_DIR}/Anchorage/Anchorage.framework",
-				"${BUILT_PRODUCTS_DIR}/GRDB.swift/GRDB.framework",
 				"${BUILT_PRODUCTS_DIR}/LocoKit/LocoKit.framework",
-				"${PODS_ROOT}/LocoKitCore/LocoKitCore.framework",
+				"${PODS_ROOT}/../LocoKitCore.framework",
 				"${BUILT_PRODUCTS_DIR}/SwiftNotes/SwiftNotes.framework",
-				"${BUILT_PRODUCTS_DIR}/Upsurge/Upsurge.framework",
 			);
 			name = "[CP] Embed Pods Frameworks";
 			outputPaths = (
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Anchorage.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/GRDB.framework",
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/LocoKit.framework",
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/LocoKitCore.framework",
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/SwiftNotes.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Upsurge.framework",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;

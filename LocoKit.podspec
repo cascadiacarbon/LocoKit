@@ -7,7 +7,7 @@ Pod::Spec.new do |s|
   s.license      = { :text => "Copyright 2018 Matt Greenfield. All rights reserved.", 
                      :type => "Commercial" }
   
-  s.source       = { :git => 'https://github.com/sobri909/LocoKit.git', :tag => '7.0.0' }
+  s.source       = { :path => '/Users/ericschmitt/Documents/Work/Codex/LocoKit'}
   s.frameworks   = 'CoreLocation', 'CoreMotion' 
   s.swift_version = '4.2'
   s.ios.deployment_target = '10.0'

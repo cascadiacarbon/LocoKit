@@ -240,7 +240,7 @@ import LocoKitCore
     /**
      The most recently received unmodified CLLocation.
      */
-    public var rawLocation: CLLocation? {
+    @objc public var rawLocation: CLLocation? {
         return locationManager.location
     }
     
@@ -255,7 +255,7 @@ import LocoKitCore
      properties (course, speed, etc) are identical to the values in `rawLocation`. For fully smoothed and denoised 
      motion properties you should use `locomotionSample` instead.
      */
-    public var filteredLocation: CLLocation? {
+    @objc public var filteredLocation: CLLocation? {
         return ActivityBrain.highlander.kalmanLocation
     }
     
@@ -269,6 +269,23 @@ import LocoKitCore
     public func locomotionSample() -> LocomotionSample {
         return LocomotionSample(from: ActivityBrain.highlander.presentSample)
     }
+    
+    @objc public func locomotionSampleAsDictionary() -> NSDictionary {
+        
+        return  LocomotionSample(from: ActivityBrain.highlander.presentSample).toDictionary();
+    }
+    /*
+    private func sampleToDictionary(sample: ActivityBrainSample) -> NSDictionary {
+        let dictionary: NSDictionary = [:];
+        dictionary.setValue(ActivityBrain.highlander.presentSample.course, forKey: "course")
+        dictionary.setValue(ActivityBrain.highlander.presentSample.filteredLocations, forKey: "filteredLocations")
+        dictionary.setValue(ActivityBrain.highlander.presentSample.date, forKey: "date")
+        dictionary.setValue(ActivityBrain.highlander.presentSample.coreMotionActivityType, forKey: "coreMotionActivityType");
+        dictionary.setValue(ActivityBrain.highlander.presentSample.speed, forKey: "speed");
+        dictionary.setValue(ActivityBrain.highlander.presentSample.location, forKey: "location");
+        
+        return dictionary;
+    }*/
     
     // MARK: Current Moving State
     
@@ -299,7 +316,7 @@ import LocoKitCore
      
      Amongst other internal tasks, this will call `startUpdatingLocation()` on the internal location manager.
      */
-    public func startRecording() {
+    @objc public func startRecording() {
         if recordingState == .recording { return }
 
         guard haveLocationPermission else {
@@ -343,7 +360,7 @@ import LocoKitCore
      
      Amongst other internal tasks, this will call `stopUpdatingLocation()` on the internal location manager.
      */
-    public func stopRecording() {
+    @objc public func stopRecording() {
         if recordingState == .off { return }
 
         // prep the brain for next startup
@@ -373,7 +390,7 @@ import LocoKitCore
      Reset the internal state of the location Kalman filters. When the next raw location arrives, `filteredLocation` 
      will be identical to the raw location.
      */
-    public func resetLocationFilter() {
+    @objc public func resetLocationFilter() {
         ActivityBrain.highlander.resetKalmans()
     }
 
@@ -382,13 +399,13 @@ import LocoKitCore
      start using Core Motion. I will make this method private soon, and provide a more tidy way to trigger a Core
      Motion permission request modal.
      */
-    public func startCoreMotion() {
+    @objc public func startCoreMotion() {
         startTheM()
         startThePedometer()
         startTheWiggles()
     }
 
-    private func stopCoreMotion() {
+    @objc private func stopCoreMotion() {
         stopTheM()
         stopThePedometer()
         stopTheWiggles()
@@ -397,7 +414,7 @@ import LocoKitCore
     // MARK: Misc Helpers and Convenience Wrappers
     
     /// A convenience wrapper for `CLLocationManager.locationServicesEnabled()`
-    public var locationServicesAreOn: Bool {
+    @objc public var locationServicesAreOn: Bool {
         return CLLocationManager.locationServicesEnabled()
     }
     
@@ -410,7 +427,7 @@ import LocoKitCore
      - background: If `true`, will call `requestAlwaysAuthorization()`, otherwise `requestWhenInUseAuthorization()`
      will be called. Default value is `false`.
      */
-    public func requestLocationPermission(background: Bool = false) {
+    @objc public func requestLocationPermission(background: Bool = false) {
         if background {
             locationManager.requestAlwaysAuthorization()
             
@@ -422,7 +439,7 @@ import LocoKitCore
     /**
      The device authorisation state for monitoring Core Motion data.
      */
-    public var haveCoreMotionPermission: Bool {
+   @objc  public var haveCoreMotionPermission: Bool {
         if coreMotionPermission {
             return true
         }
@@ -441,7 +458,7 @@ import LocoKitCore
      
      Returns true if status is either `authorizedWhenInUse` or `authorizedAlways`.
      */
-    public var haveLocationPermission: Bool {
+    @objc public var haveLocationPermission: Bool {
         let status = CLLocationManager.authorizationStatus()
         return status == .authorizedWhenInUse || status == .authorizedAlways
     }
@@ -451,7 +468,7 @@ import LocoKitCore
      
      Returns true if status is `authorizedAlways`.
      */
-    public var haveBackgroundLocationPermission: Bool {
+    @objc public var haveBackgroundLocationPermission: Bool {
         return CLLocationManager.authorizationStatus() == .authorizedAlways
     }
     
@@ -483,7 +500,7 @@ import LocoKitCore
 
     // MARK: - Sleep mode management
 
-    private func startSleeping() {
+    @objc private func startSleeping() {
         if recordingState == .sleeping { return }
 
         // make sure we're allowed to use sleep mode
@@ -518,7 +535,7 @@ import LocoKitCore
         }
     }
 
-    public func startDeepSleeping(until wakeupTime: Date) {
+    @objc public func startDeepSleeping(until wakeupTime: Date) {
 
         // make sure the device settings allow deep sleep
         guard canDeepSleep else {
@@ -563,7 +580,7 @@ import LocoKitCore
         recordingState = .deepSleeping
     }
 
-    public var canDeepSleep: Bool {
+    @objc public var canDeepSleep: Bool {
         guard haveBackgroundLocationPermission else { return false }
         guard UIApplication.shared.backgroundRefreshStatus == .available else { return false }
         return true
